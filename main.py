@@ -6,8 +6,8 @@ from flask_socketio import SocketIO
 from telethon import TelegramClient, events
 
 # --- KONFIGURASI ---
-API_ID = 'ISI_API_ID'
-API_HASH = 'ISI_API_HASH'
+API_ID = '37350663'
+API_HASH = '2576953ef710f5acfe5628a9fc46c833'
 TARGET_BOT = 'HdFotoBot'
 
 app = Flask(__name__)
