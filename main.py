@@ -1,78 +1,70 @@
 import os
 import asyncio
-import uvicorn
-from fastapi import FastAPI, UploadFile, File, Request
-from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
-from fastapi_socketio import SocketManager
+import threading
+from flask import Flask, render_template, request, jsonify
+from flask_socketio import SocketIO
 from telethon import TelegramClient, events
 
-# --- KONFIGURASI PENTING ---
-# Ambil ID dan HASH kamu di https://my.telegram.org
-API_ID = '37350663' 
-API_HASH = '2576953ef710f5acfe5628a9fc46c833'
-TARGET_BOT = 'HdFotoBot' 
+# --- KONFIGURASI ---
+API_ID = 'ISI_API_ID'
+API_HASH = 'ISI_API_HASH'
+TARGET_BOT = 'HdFotoBot'
 
-app = FastAPI()
-sio = SocketManager(app=app)
+app = Flask(__name__)
+socketio = SocketIO(app, cors_allowed_origins="*")
 
-# Pastikan folder penyimpanan ada agar tidak error
-if not os.path.exists("static"):
-    os.makedirs("static")
+if not os.path.exists("static"): os.makedirs("static")
 
-# Koneksi ke folder static dan templates yang kamu buat di Acode
-app.mount("/static", StaticFiles(directory="static"), name="static")
-templates = Jinja2Templates(directory="templates")
-
-# Inisialisasi Userbot
+telethon_loop = None
 client = TelegramClient('ino_session', API_ID, API_HASH)
 
-@app.on_event("startup")
-async def startup():
-    # Menjalankan userbot saat server aktif
-    await client.start()
+@app.route('/')
+def index():
+    return render_template('index.html')
 
-@app.get("/")
-async def home(request: Request):
-    # Menampilkan halaman utama website
-    return templates.TemplateResponse("index.html", {"request": request})
+@app.route('/upload', methods=['POST'])
+def upload():
+    if 'file' not in request.files:
+        return jsonify({"status": "Error", "message": "File gak ada"}), 400
 
-@app.post("/upload")
-async def upload_photo(file: UploadFile = File(...)):
-    # 1. Simpan foto input dari website ke folder static
-    temp_path = f"static/input_{file.filename}"
-    with open(temp_path, "wb") as buffer:
-        buffer.write(await file.read())
+    file = request.files['file']
+    path = f"static/{file.filename}"
+    file.save(path)
     
-    # 2. Kirim foto tersebut ke bot target (@HdFotoBot)
-    async with client:
-        await client.send_file(TARGET_BOT, temp_path)
-    
-    return {"status": "Processing"}
+    if telethon_loop:
+        # Fungsi internal untuk kirim foto dan klik otomatis
+        async def send_and_confirm():
+            # 1. Kirim Foto
+            sent_msg = await client.send_file(TARGET_BOT, path)
+            # 2. Tunggu sebentar biar bot munculin tombol
+            await asyncio.sleep(1.5)
+            # 3. Kirim teks "Evet" (Otomatis konfirmasi)
+            await client.send_message(TARGET_BOT, "Evet")
+            print(f"🚀 Sent to bot: {file.filename} and confirmed 'Evet'")
 
-# --- LOGIKA PENANGKAP BALASAN TELEGRAM ---
+        asyncio.run_coroutine_threadsafe(send_and_confirm(), telethon_loop)
+        return jsonify({"status": "Processing"})
+    
+    return jsonify({"status": "Error", "message": "Server belum siap"}), 500
+
 @client.on(events.NewMessage(from_users=TARGET_BOT))
 async def handler(event):
-    # Cek jika bot mengirim pesan teks (biasanya info LIMIT)
-    if event.text and not event.document:
-        msg = event.text.lower()
-        if any(x in msg for x in ["limit", "sınır", "reached", "wait", "tunggu"]):
-            await sio.emit('limit_info', {'msg': 'PROTOCOL ERROR: BOT LIMIT REACHED'})
-            return
-
-    # Cek jika bot mengirim dokumen (File HD kualitas asli)
+    # Cari dokumen/file yang dikirim balik oleh bot
     if event.document:
-        # Beri nama file unik dengan awalan INO_HD
-        filename = f"INO_HD_{event.document.id}.jpg"
-        save_path = f"static/{filename}"
-        
-        # Download file dari Telegram ke folder static di server/hosting
-        await event.download_media(file=save_path)
-        
-        # Beritahu website lewat Socket agar foto langsung muncul tanpa refresh
-        await sio.emit('hasil_siap', {'url': f'/static/{filename}'})
-        print(f"Sistem: Foto {filename} berhasil di-HD-kan!")
+        path = await event.download_media(file="static/")
+        filename = os.path.basename(path)
+        # Kasih tau web kalau hasil sudah siap
+        socketio.emit('hasil_siap', {'url': f'/static/{filename}'})
+        print(f"✅ Ino.digital: Hasil HD Ready -> {filename}")
 
-if __name__ == "__main__":
-    # Jalankan di port 8080 (standar untuk testing dan hosting)
-    uvicorn.run(app, host="0.0.0.0", port=8080)
+def run_telethon():
+    global telethon_loop
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    telethon_loop = loop 
+    client.start()
+    client.run_until_disconnected()
+
+if __name__ == '__main__':
+    threading.Thread(target=run_telethon, daemon=True).start()
+    socketio.run(app, host='0.0.0.0', port=8080, allow_unsafe_werkzeug=True)
