@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Ino.Digital | HD Enhancer</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <style>
+        /* Ganti Warna ke Purple Neon */
+        :root { --neon: #bc13fe; --pink: #f0f; --bg: #050505; }
+        
+        html, body { 
+            background: var(--bg); color: white; font-family: 'Segoe UI', sans-serif; 
+            margin: 0; padding: 0; width: 100%; overflow-x: hidden; 
+            display: flex; flex-direction: column; min-height: 100vh; align-items: center; 
+        }
+
+        header { padding: 40px 20px 10px 20px; text-align: center; width: 100%; box-sizing: border-box; }
+        
+        .logo-img { 
+            width: 85px; height: 85px; border-radius: 50%; 
+            border: 2px solid var(--neon); box-shadow: 0 0 20px var(--neon);
+            object-fit: cover; margin-bottom: 15px;
+        }
+
+        .brand-name { display: block; font-weight: bold; font-size: 1.5rem; letter-spacing: 4px; text-shadow: 0 0 10px var(--neon); }
+        
+        /* Deskripsi Center & Purple */
+        .description { 
+            font-size: 0.8rem; color: #a0a0a0; margin: 10px auto 25px auto;
+            max-width: 300px; line-height: 1.5; text-transform: uppercase; 
+            letter-spacing: 1px; text-align: center; /* Memastikan Center */
+        }
+
+        .card { 
+            background: #0f0f0f; border: 1px solid #222; border-radius: 25px; 
+            padding: 25px; width: 88%; max-width: 350px; text-align: center; 
+            box-shadow: 0 10px 40px rgba(188, 19, 254, 0.1); box-sizing: border-box;
+        }
+
+        input[type="file"] { 
+            background: #1a1a1a; border: 1px dashed var(--neon); padding: 12px; 
+            width: 100%; border-radius: 12px; margin-bottom: 20px; 
+            color: #ccc; box-sizing: border-box; font-size: 12px;
+        }
+
+        .btn-glow { 
+            background: transparent; border: 1px solid var(--neon); color: var(--neon); 
+            padding: 15px; border-radius: 50px; font-weight: bold; cursor: pointer; 
+            transition: 0.3s; width: 100%; text-transform: uppercase;
+            box-shadow: 0 0 10px rgba(188, 19, 254, 0.2);
+        }
+        .btn-glow:hover { background: var(--neon); color: white; box-shadow: 0 0 30px var(--neon); }
+
+        .loading-box { display: none; margin-top: 20px; width: 100%; }
+        .bar { width: 100%; height: 6px; background: #222; border-radius: 10px; overflow: hidden; }
+        .fill { width: 30%; height: 100%; background: var(--neon); box-shadow: 0 0 15px var(--neon); transition: 0.5s; }
+        
+        #result-img { 
+            width: 100%; border-radius: 15px; display: none; margin-top: 20px; 
+            border: 1px solid var(--neon); box-shadow: 0 0 20px var(--neon); 
+        }
+
+        .error-msg { color: #ff4444; border: 1px solid #ff4444; padding: 10px; border-radius: 10px; display: none; margin-top: 15px; font-size: 12px; }
+
+        /* Footer Purple */
+        footer { margin-top: auto; padding: 30px; text-align: center; color: #444; font-size: 11px; width: 100%; }
+        footer a { color: var(--neon); text-decoration: none; margin: 0 10px; font-weight: bold; }
+        footer a:hover { text-shadow: 0 0 5px var(--neon); }
+    </style>
+</head>
+<body>
+
+<header>
+    <img src="https://files.catbox.moe/fmzx1o.png" class="logo-img" alt="Ino.digital">
+    <span class="brand-name">INO.DIGITAL</span>
+    <p class="description">AI Photo Enhancer - Ubah foto burik jadi kualitas HD secara otomatis lewat cloud Telegram.</p>
+</header>
+
+<div class="card">
+    <div id="input-section">
+        <input type="file" id="fileInput" accept="image/*">
+        <button class="btn-glow" onclick="process()">Enhance Photo</button>
+    </div>
+
+    <div class="loading-box" id="loader">
+        <div class="bar"><div class="fill" id="prog-bar"></div></div>
+        <p id="status-text" style="font-size: 10px; color: var(--neon); margin-top: 10px; letter-spacing: 2px;">PROCESSING HD...</p>
+    </div>
+
+    <div id="error" class="error-msg"></div>
+    <img id="result-img" src="" alt="HD Result">
+    
+    <audio id="bgm" loop><source src="https://www.bensound.com/bensound-music/bensound-lofi.mp3" type="audio/mpeg"></audio>
+</div>
+
+<footer>
+    <p>&copy; 2026 Ino.digital. All Rights Reserved.</p>
+    <p><a href="#">Privacy Policy</a> | <a href="#">Usage Protocol</a></p>
+</footer>
+
+<script>
+    const socket = io();
+    const bgm = document.getElementById('bgm');
+
+    socket.on('hasil_siap', (data) => {
+        document.getElementById('prog-bar').style.width = '100%';
+        document.getElementById('status-text').innerText = "HD COMPLETED!";
+        setTimeout(() => {
+            document.getElementById('loader').style.display = 'none';
+            const img = document.getElementById('result-img');
+            img.src = data.url;
+            img.style.display = 'block';
+        }, 1000);
+    });
+
+    socket.on('limit_info', (data) => {
+        document.getElementById('loader').style.display = 'none';
+        const err = document.getElementById('error');
+        err.innerText = data.msg;
+        err.style.display = 'block';
+    });
+
+    async function process() {
+        const file = document.getElementById('fileInput').files[0];
+        if(!file) return alert("Pilih fotonya dulu!");
+        bgm.play().catch(() => {});
+        document.getElementById('input-section').style.display = 'none';
+        document.getElementById('loader').style.display = 'block';
+        const formData = new FormData();
+        formData.append('file', file);
+        await fetch('/upload', { method: 'POST', body: formData });
+        setTimeout(() => { document.getElementById('prog-bar').style.width = '75%'; }, 2000);
+    }
+</script>
+
+</body>
+</html>
